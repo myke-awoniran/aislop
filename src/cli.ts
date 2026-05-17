@@ -53,6 +53,7 @@ const runScan = async (directory: string, flags: ScanFlags): Promise<void> => {
 		verbose: Boolean(flags.verbose),
 		json: Boolean(flags.json),
 		exclude: flags.exclude,
+		include: flags.include,
 	});
 	if (exitCode !== 0) {
 		await flushTelemetry();
@@ -65,7 +66,8 @@ const noFlagsPassed = (flags: ScanFlags): boolean =>
 	!flags.staged &&
 	!flags.verbose &&
 	!flags.json &&
-	!(flags.exclude && flags.exclude.length > 0);
+	!(flags.exclude && flags.exclude.length > 0) &&
+	!(flags.include && flags.include.length > 0);
 
 const program = new Command()
 	.name("aislop")

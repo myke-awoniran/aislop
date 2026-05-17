@@ -1,25 +1,25 @@
 import fs from "node:fs";
 import path from "node:path";
-import { performance } from "node:perf_hooks";
-import type { AislopConfig } from "../config/index.js";
-import { findConfigDir, RULES_FILE } from "../config/index.js";
-import { runEngines } from "../engines/orchestrator.js";
-import type { Diagnostic, EngineConfig, EngineName, EngineResult } from "../engines/types.js";
-import { ENGINE_INFO, getEngineLabel } from "../output/engine-info.js";
-import { printEngineStatus, renderDiagnostics } from "../output/terminal.js";
-import { calculateScore } from "../scoring/index.js";
-import { renderHeader } from "../ui/header.js";
-import { detectInvocation } from "../ui/invocation.js";
-import { type GridRow, type GridRowOutcome, LiveGrid } from "../ui/live-grid.js";
-import { log } from "../ui/logger.js";
-import { renderCleanRun, renderSummary, type NextStep } from "../ui/summary.js";
-import { createSymbols } from "../ui/symbols.js";
-import { createTheme } from "../ui/theme.js";
-import { discoverProject } from "../utils/discover.js";
-import { getChangedFiles, getStagedFiles } from "../utils/git.js";
-import { filterProjectFiles, listProjectFiles } from "../utils/source-files.js";
-import { getScoreBucket, isTelemetryDisabled, trackEvent } from "../utils/telemetry.js";
-import { APP_VERSION } from "../version.js";
+import {performance} from "node:perf_hooks";
+import type {AislopConfig} from "../config/index.js";
+import {findConfigDir, RULES_FILE} from "../config/index.js";
+import {runEngines} from "../engines/orchestrator.js";
+import type {Diagnostic, EngineConfig, EngineName, EngineResult} from "../engines/types.js";
+import {ENGINE_INFO, getEngineLabel} from "../output/engine-info.js";
+import {printEngineStatus, renderDiagnostics} from "../output/terminal.js";
+import {calculateScore} from "../scoring/index.js";
+import {renderHeader} from "../ui/header.js";
+import {detectInvocation} from "../ui/invocation.js";
+import {type GridRow, type GridRowOutcome, LiveGrid} from "../ui/live-grid.js";
+import {log} from "../ui/logger.js";
+import {renderCleanRun, renderSummary, type NextStep} from "../ui/summary.js";
+import {createSymbols} from "../ui/symbols.js";
+import {createTheme} from "../ui/theme.js";
+import {discoverProject} from "../utils/discover.js";
+import {getChangedFiles, getStagedFiles} from "../utils/git.js";
+import {filterProjectFiles, listProjectFiles} from "../utils/source-files.js";
+import {getScoreBucket, isTelemetryDisabled, trackEvent} from "../utils/telemetry.js";
+import {APP_VERSION} from "../version.js";
 
 interface ScanOptions {
 	changes: boolean;
@@ -29,6 +29,7 @@ interface ScanOptions {
 	showHeader?: boolean;
 	printBrand?: boolean;
 	exclude?: string[];
+	include?: string[];
 	/** Used for telemetry to distinguish scan vs ci invocation */
 	command?: "scan" | "ci";
 }
@@ -57,7 +58,7 @@ export const buildScanRender = (input: BuildScanRenderInput): string => {
 	// Colors still reflect the terminal (they strip cleanly with ANSI_RE in tests).
 	const deps = {
 		theme: createTheme(),
-		symbols: createSymbols({ plain: false }),
+		symbols: createSymbols({plain: false}),
 	};
 
 	const invocation = detectInvocation();
@@ -66,14 +67,14 @@ export const buildScanRender = (input: BuildScanRenderInput): string => {
 		input.includeHeader === false
 			? ""
 			: renderHeader(
-					{
-						version: APP_VERSION,
-						command: "scan",
-						context: [input.projectName, input.language, `${input.fileCount} files`],
-						brand: input.printBrand !== false,
-					},
-					deps,
-				);
+				{
+					version: APP_VERSION,
+					command: "scan",
+					context: [input.projectName, input.language, `${input.fileCount} files`],
+					brand: input.printBrand !== false,
+				},
+				deps,
+			);
 
 	const errors = input.diagnostics.filter((d) => d.severity === "error").length;
 	const warnings = input.diagnostics.filter((d) => d.severity === "warning").length;
@@ -84,7 +85,7 @@ export const buildScanRender = (input: BuildScanRenderInput): string => {
 
 	if (input.diagnostics.length === 0 && input.score.score === 100) {
 		return `${header}${renderCleanRun(
-			{ score: input.score.score, label: input.score.label, elapsedMs: input.elapsedMs },
+			{score: input.score.score, label: input.score.label, elapsedMs: input.elapsedMs},
 			deps,
 		)}`;
 	}
@@ -142,20 +143,20 @@ export const scanCommand = async (
 	if (!fs.existsSync(resolvedDir)) {
 		const msg = `Path does not exist: ${resolvedDir}`;
 		if (options.json) {
-			console.log(JSON.stringify({ error: msg }, null, 2));
+			console.log(JSON.stringify({error: msg}, null, 2));
 		} else {
 			log.error(msg);
 		}
-		return { exitCode: 1 };
+		return {exitCode: 1};
 	}
 	if (!fs.statSync(resolvedDir).isDirectory()) {
 		const msg = `Not a directory: ${resolvedDir}`;
 		if (options.json) {
-			console.log(JSON.stringify({ error: msg }, null, 2));
+			console.log(JSON.stringify({error: msg}, null, 2));
 		} else {
 			log.error(msg);
 		}
-		return { exitCode: 1 };
+		return {exitCode: 1};
 	}
 
 	const showHeader = options.showHeader !== false;
@@ -212,11 +213,11 @@ export const scanCommand = async (
 		},
 		config.engines,
 		(engine) => {
-			progressRenderer?.update(engine, { status: "running" });
+			progressRenderer?.update(engine, {status: "running"});
 		},
 		(result) => {
 			if (result.skipped) {
-				progressRenderer?.update(result.engine, { status: "skipped", summary: "skipped" });
+				progressRenderer?.update(result.engine, {status: "skipped", summary: "skipped"});
 			} else {
 				const errors = result.diagnostics.filter((d) => d.severity === "error").length;
 				const warnings = result.diagnostics.filter((d) => d.severity === "warning").length;
@@ -276,10 +277,10 @@ export const scanCommand = async (
 	}
 
 	if (options.json) {
-		const { buildJsonOutput } = await import("../output/json.js");
+		const {buildJsonOutput} = await import("../output/json.js");
 		const jsonOut = buildJsonOutput(results, scoreResult, projectInfo.sourceFileCount, elapsedMs);
 		console.log(JSON.stringify(jsonOut, null, 2));
-		return { exitCode };
+		return {exitCode};
 	}
 
 	const projectName = projectInfo.projectName ?? "project";
@@ -300,5 +301,5 @@ export const scanCommand = async (
 		}),
 	);
 
-	return { exitCode };
+	return {exitCode};
 };
