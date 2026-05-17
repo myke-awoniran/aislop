@@ -96,7 +96,7 @@ const AislopConfigSchema = z.object({
 		enabled: true,
 	})),
 	exclude: z.array(z.string()).default(() => ["node_modules", ".git", "dist", "build", "coverage"]),
-	include: z.array(z.string()).optional(),
+	include: z.array(z.string()).default(() => []),
 });
 
 export type AislopConfig = z.infer<typeof AislopConfigSchema>;
