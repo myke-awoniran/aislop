@@ -218,9 +218,9 @@ export const filterProjectFiles = (
 			return false;
 		}
 		// exclude precedence over include
-		// if (isUserExcluded(relativePath)) {
-		// 	return false;
-		// }
+		if (isUserExcluded(relativePath)) {
+			return false;
+		}
 		return hasAllowedExtension(relativePath, extraSet);
 	}).map(({absolutePath}) => absolutePath);
 };
