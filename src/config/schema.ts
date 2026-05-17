@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import {z} from "zod/v4";
 
 const DEFAULT_WEIGHTS: Record<string, number> = {
 	format: 0.3,
@@ -23,6 +23,10 @@ const QualitySchema = z.object({
 	maxFileLoc: z.number().positive().default(400),
 	maxNesting: z.number().positive().default(5),
 	maxParams: z.number().positive().default(6),
+});
+
+const LintConfigSchema = z.object({
+	typecheck: z.boolean().default(false),
 });
 
 const SecurityConfigSchema = z.object({
@@ -69,12 +73,15 @@ const AislopConfigSchema = z.object({
 		maxNesting: 5,
 		maxParams: 6,
 	})),
+	lint: LintConfigSchema.default(() => ({
+		typecheck: false,
+	})),
 	security: SecurityConfigSchema.default(() => ({
 		audit: true,
 		auditTimeout: 25000,
 	})),
 	scoring: ScoringSchema.default(() => ({
-		weights: { ...DEFAULT_WEIGHTS },
+		weights: {...DEFAULT_WEIGHTS},
 		thresholds: {
 			good: 75,
 			ok: 50,
@@ -89,7 +96,7 @@ const AislopConfigSchema = z.object({
 		enabled: true,
 	})),
 	exclude: z.array(z.string()).default(() => ["node_modules", ".git", "dist", "build", "coverage"]),
-	include:z.array(z.string()).optional()
+	include: z.array(z.string()).optional(),
 });
 
 export type AislopConfig = z.infer<typeof AislopConfigSchema>;
@@ -107,7 +114,7 @@ const preMergeWeights = (raw: Record<string, unknown>): void => {
 	const userWeights = scoring.weights as Record<string, number> | undefined;
 	if (!userWeights || typeof userWeights !== "object") return;
 
-	scoring.weights = { ...DEFAULT_WEIGHTS, ...userWeights };
+	scoring.weights = {...DEFAULT_WEIGHTS, ...userWeights};
 };
 
 export const parseConfig = (raw: unknown): AislopConfig => {

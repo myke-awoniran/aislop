@@ -1,10 +1,11 @@
 {
 	"name": "aislop",
-	"version": "0.6.2",
-	"description": "Stop AI slop from shipping. A unified code quality CLI that catches the lazy patterns AI coding tools leave behind.",
+	"version": "0.9.0",
+	"description": "The engineering standards layer and quality gate for AI-written code. Define your standard once. Every agent — Claude Code, Cursor, Codex — is held to it automatically, on every edit and every PR. Catches the slop they leave behind, enforces the rules your team sets. 8+ languages. Deterministic.",
 	"type": "module",
 	"bin": {
-		"aislop": "./dist/cli.js"
+		"aislop": "./dist/cli.js",
+		"aislop-mcp": "./dist/mcp.js"
 	},
 	"files": [
 		"dist",
@@ -24,7 +25,7 @@
 		"test": "pnpm build && vitest run",
 		"scan": "pnpm build && node dist/cli.js scan .",
 		"scan:exclude": "pnpm build && node dist/cli.js scan . --exclude .idea --exclude .gitnore --exclude node_modules",
-		"scan:include": "pnpm build && node dist/cli.js scan . --include .idea --exclude .gitnore --exclude node_modules",
+		"scan:include": "pnpm build && node dist/cli.js scan . --include src --include tests",
 		"scan:json": "pnpm build && node dist/cli.js scan . --json",
 		"quality": "pnpm typecheck && pnpm test && node dist/cli.js scan . --json"
 	},
@@ -64,6 +65,7 @@
 	"dependencies": {
 		"@biomejs/biome": "^2.4.5",
 		"@clack/prompts": "^1.2.0",
+		"@modelcontextprotocol/sdk": "^1.29.0",
 		"adm-zip": "^0.5.16",
 		"commander": "^14.0.3",
 		"expo-doctor": "^1.18.10",
@@ -82,5 +84,10 @@
 		"@types/node": "^25.6.0",
 		"tsdown": "^0.20.3",
 		"vitest": "^4.0.18"
+	},
+	"pnpm": {
+		"overrides": {
+			"postcss@<8.5.10": "^8.5.10"
+		}
 	}
 }

@@ -1,4 +1,4 @@
-import type { AislopConfig } from "./schema.js";
+import type {AislopConfig} from "./schema.js";
 
 export const DEFAULT_CONFIG: AislopConfig = {
 	version: 1,
@@ -16,6 +16,9 @@ export const DEFAULT_CONFIG: AislopConfig = {
 		maxFileLoc: 400,
 		maxNesting: 5,
 		maxParams: 6,
+	},
+	lint: {
+		typecheck: false,
 	},
 	security: {
 		audit: true,

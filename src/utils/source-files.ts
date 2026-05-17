@@ -214,31 +214,15 @@ export const filterProjectFiles = (
 		) {
 			return false;
 		}
-
 		if (!isUserIncluded(relativePath)) {
 			return false;
 		}
-
 		// exclude precedence over include
-		if (isUserExcluded(relativePath)) {
-			return false;
-		}
-
+		// if (isUserExcluded(relativePath)) {
+		// 	return false;
+		// }
 		return hasAllowedExtension(relativePath, extraSet);
 	}).map(({absolutePath}) => absolutePath);
-
-	// return normalizedFiles
-	// 	.filter(({absolutePath, relativePath}) => {
-	// 		return (
-	// 			hasAllowedExtension(relativePath, extraSet) &&
-	// 			!isExcludedPath(relativePath) &&
-	// 			!isTestFile(relativePath) &&
-	// 			!ignoredPaths.has(relativePath) &&
-	// 			!isUserExcluded(relativePath) &&
-	// 			fs.existsSync(absolutePath)
-	// 		);
-	// 	})
-	// 	.map(({absolutePath}) => absolutePath);
 };
 
 const filterExplicitFiles = (

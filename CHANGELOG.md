@@ -4,6 +4,141 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.9.0 (2026-05-16)
+
+Minor release replacing the legacy telemetry with a structured, typed event scheme that covers every CLI command, the MCP server, and the agent hooks — without leaking PII. Includes a redaction allowlist guard, debug/dry-run modes, and a stable anonymous install ID.
+
+### Added
+
+- **Telemetry v2 event scheme (#107).** Six events replace the legacy `cli_scan` / `cli_fix` / `cli_ci`:
+  - `cli_installed` — fires once per machine, when `~/.aislop/install_id` is first created.
+  - `cli_command_started` / `cli_command_completed` — every command (`scan`, `fix`, `ci`, `init`, `doctor`, `rules`, `badge`, and `hook install/uninstall/status/baseline`).
+  - `mcp_server_started`, `mcp_tool_called` — the `aislop-mcp` stdio server and each `aislop_scan` / `aislop_fix` / `aislop_why` / `aislop_baseline` tool invocation.
+  - `hook_scan_completed` — after a Claude / Cursor / Gemini agent hook finishes its scoped scan.
+- **Indexable, flattened properties.** Every event carries `aislop_version`, `node_version`, `os`, `arch`, `schema_version="v2"`, `anonymous_install_id`, `package_manager` (npm / pnpm / yarn / bun / npx / unknown), `is_ci`. Command events add `command`, `language_summary`, per-language flags (`lang_typescript` / `lang_javascript` / `lang_python` / `lang_java`), `file_count_bucket`, `score`, `score_bucket`, `finding_count`, `error_count`, `warning_count`, `fixable_count`, `exit_code`, `duration_ms`, `error_kind`, and flattened per-engine counters (`engine_<name>_issues`, `engine_<name>_ms`). Previously nested `engine_issues`, `engine_timings`, and `languages` were not indexable and could not be broken down.
+- **Stable anonymous install ID.** Random UUIDv4 stored at `~/.aislop/install_id` (honors `XDG_STATE_HOME` on Linux), `0600` permissions, atomic write for concurrent-process safety. Replaces the prior `hostname-platform-arch` djb2 hash. Deleting the file re-rolls identity.
+- **Redaction allowlist.** Every outgoing property passes through a frozen allowlist at the transport boundary; anything not on the list is dropped. Explicitly never collected: file paths, project names, repo names, branch names, source text, raw diagnostics, secrets.
+- **Debug and dry-run modes.** `AISLOP_TELEMETRY_DEBUG=1` prints every outgoing event to stderr as JSON. Combine with `AISLOP_TELEMETRY_DRY_RUN=1` for "what would this command emit?" without sending.
+- **`withCommandLifecycle()` wrapper.** New helper that fires `_started` + `_completed` (even on throw) and awaits flush before returning. Replaces inlined `trackEvent({...})` blocks in `scan`, `fix`, `ci`, `init`, `doctor`, `rules`, `badge`, and the hook subcommands.
+
+### Changed
+
+- **Opt-out precedence tweak.** Explicit `telemetry.enabled: true` in `.aislop/config.yml` now overrides the `CI=true` default. Previously CI overrode config. Env vars (`AISLOP_NO_TELEMETRY=1`, `DO_NOT_TRACK=1`) still win over everything. This makes `is_ci=true` a meaningful property when teams explicitly opt in.
+- **PostHog `distinct_id` semantics.** Switches from the hostname-based djb2 hash to the new UUIDv4. Anonymous in both cases, but every existing user's identifier resets at next CLI run. Downstream dashboards built on v1 events still receive historical data.
+- **Telemetry module split.** Single-file `src/utils/telemetry.ts` (107 lines) replaced by a focused `src/telemetry/` module: `client`, `events`, `lifecycle`, `identity`, `redaction`, `language`, `env`, `index` — each unit with a single purpose and clear boundaries.
+
+### Removed
+
+- **Legacy `cli_scan` / `cli_fix` / `cli_ci` events.** No longer emitted. v1 dashboards continue to work for historical analysis.
+- **`src/utils/telemetry.ts`.** Replaced by the modular `src/telemetry/` layer.
+
+### Documentation
+
+- **`docs/telemetry.md` rewritten** to describe v2 events, properties, identity, opt-out precedence, and debug modes.
+
+### Internal
+
+- 6 new test files (36 tests) covering identity, redaction, lifecycle, language, env, and the opt-out precedence rules. Total: 791 tests passing (up from 755).
+- Self-scan: 100 / 100.
+
+## 0.8.3 (2026-05-13)
+
+Patch release fixing a hallucinated-import false positive on projects that use TypeScript `compilerOptions.paths` aliases.
+
+### Fixed
+
+- **Respect `tsconfig.json` / `jsconfig.json` path aliases in hallucinated-import detection.** Imports matching a declared path alias (e.g. `import x from "@/components/Foo"` when `paths: { "@/*": ["./src/*"] }` is set) are no longer flagged as hallucinated packages. Walks the root and every workspace package, reads `compilerOptions.paths`, and supports both wildcard (`@/*`) and exact (`#shared`) alias keys. Malformed tsconfig is skipped silently (degraded behavior — the detector still flags as before). Added 5 vitest cases covering wildcard, exact, workspace-scoped tsconfig, `jsconfig.json`, and the malformed-config fallback.
+
+## 0.8.2 (2026-05-10)
+
+Patch release with false-positive reduction for narrative comments and dependency downgrade protection utilities.
+
+### Fixed
+
+- **Reduce false positives in narrative-comment detector.** JSDoc comments now require explicit slop signals (explanatory openers, justification patterns, cross-references) to be flagged. Added support for `e.g.` and `i.e.` as documentation indicators. Line-comment preambles (3+ lines before declarations) are still flagged.
+
+### Added
+
+- **Semver downgrade detection utilities.** Added `parseSemverMin` and `isDowngrade` helpers to `fix-force.ts` for detecting when dependency updates would downgrade packages (e.g., `^13.6.0` → `^12.1.0`). Handles wildcard specs like `^11.x.x` and ignores non-semver shapes (`workspace:*`, git URLs).
+
+### Internal
+
+- Extracted `isNonProductionPath` helper to shared module for reuse across detectors.
+
+## 0.8.1 (2026-05-10)
+
+Documentation update to improve first-run experience.
+
+### Documentation
+
+- **Condense README, prioritize instant scan (#97).** Restructured README to put instant scan command (`npx aislop scan`) at the top. Integrated badge snippet into Quick start section. Added `npx` prefix to all commands for consistency. Removed sample output, moved "Why aislop" and "What it catches" to bottom. Reduced README from 407 lines to 287 lines (-120 lines). Added context to Fix and Hand off to agent sections.
+
+## 0.8.0 (2026-05-09)
+
+Major feature release with MCP server support, TypeScript typecheck engine, expanded multi-language AI slop coverage, and significant false-positive reduction via OSS validation.
+
+### Added
+
+- **MCP server support (#89).** `aislop-mcp` binary now ships with the package. Exposes `scan`, `fix`, `why`, and `baseline` as MCP tools via Model Context Protocol. AI coding assistants (Claude Desktop, etc.) can directly invoke aislop operations.
+- **TypeScript typecheck engine (#84).** New lint engine runs `tsc --noEmit` and parses TypeScript compiler diagnostics. Integrates with existing lint scoring, respects tsconfig.json project references. Catches type errors alongside eslint/oxlint findings.
+- **Hallucinated-import detector (#86).** Flags imports of packages not declared in any package.json manifest. Walks manifests up to depth 4 for monorepos. Catches AI-generated imports of non-existent packages.
+- **Expanded multi-language AI slop patterns (#90).** Added 7 new detectors across Python, Go, and Rust:
+  - Python: placeholder exception handlers, generic print debugging
+  - Go: library panics in exported functions, TODO/FIXME markers in production
+  - Rust: unwrap() chains, unimplemented!() in library code, excessive .clone()
+- **Hook envelope v2 + duplicate-import rule (#87).** New hook protocol version with structured responses. Added `ai-slop/duplicate-import` detector that flags redundant imports of the same symbol/module.
+- **FileChanged hook subscription (#88).** Claude Code integration now watches `.aislop/config.yml`, `.aislop/rules.yml`, and `package.json` for changes and re-scans automatically.
+- **GitHub Step Summary writer (#79).** CI runs now output rich markdown summaries in GitHub Actions UI with per-finding help text, severity badges, and quick-fix suggestions.
+- **Improved scoring system (#74).** New formula with per-engine caps, file-aware density smoothing, and fixable-issue discount. More stable scores across project sizes, less penalty for auto-fixable findings.
+
+### Fixed
+
+- **False-positive reduction via OSS validation (#91).** Validated detectors against 25 real OSS projects (requests, flask, fastapi, cobra, gin, hugo, clap, ripgrep, tokio, serde, prisma, trpc, zod, vitest, nest, express, lodash, axios, chalk, commander). Eliminated ~4,100 false positives:
+  - `narrative-comment` now skips Rust doc comments (///), Go doc conventions, and JSDoc with WHY markers
+  - `trivial-comment` skips rustdoc and vendored/example directories
+  - `console-leftover` exempts CLI command source directories
+  - `go-library-panic` exempts nil-check preconditions
+  - `hallucinated-import` walks package.json manifests to depth 4 for monorepos
+  - `file-too-large` adds 10% buffer over configured max (consistent with function-too-long)
+  - All detectors now skip test files, migrations, fixtures, snapshots, mocks, and generated output across all languages
+- **Contributors tracking (#83).** Squash-merged PRs now correctly attribute external contributors. Previously only direct committers appeared in contributor lists.
+- **Dependency audit warnings (#76).** Missing audit tools (npm audit, cargo audit, etc.) now show clear warning messages instead of silent failures.
+- **Dogfooding cleanup (#92).** Split `fixNarrativeComments` into separate file to keep under file-too-large threshold. Fixed pnpm-workspace.yaml regex pattern.
+
+### Documentation
+
+- **Positioning refinement (#85).** Locked "standards layer and quality gate" framing in README and npm description. Clarifies aislop's role as enforcement infrastructure, not a linter replacement.
+- **PR check clarifications (#80).** Updated documentation explaining aislop's PR checks and CI integration patterns.
+
+### Internal
+
+- 16 commits land on develop including 8 new features, 4 fixes, and 2 documentation updates.
+- 674 tests passing (up from 630).
+- 8 new detectors added (1 hallucinated-import + 7 multi-language patterns + duplicate-import).
+- Self-scan: 100/100.
+
+## 0.7.0 (2026-05-01)
+
+Two user-facing additions plus a security floor on a transitive dependency.
+
+### Added
+
+- **`extends:` in `.aislop/config.yml` (#45).** Inherit a parent config and override only the keys you need. Accepts a single relative path or an array; later entries win on conflict. Nested objects deep-merge key-by-key, arrays replace wholesale. Circular references and chains deeper than 5 are rejected at load time. Useful for org-wide baselines: one strict parent in the monorepo root, per-package overrides for `ci.failBelow` or specific weights. Documented in [`docs/configuration.md`](docs/configuration.md#extending-a-shared-config).
+- **Public score badge in the README header (#46).** Shields-compatible SVG served from `badges.scanaislop.com`, edge-cached. Drop one line into any README that opts in:
+  ```markdown
+  [![aislop](https://badges.scanaislop.com/score/<owner>/<repo>.svg)](https://scanaislop.com/<owner>/<repo>)
+  ```
+  Colour bands: green ≥ 85, amber 70–84, red < 70, grey if no scans yet. The CLI's own README now wears the badge alongside `npm version`, `CI`, and `License`.
+
+### Security
+
+- **Floor on `postcss` transitive (#49).** Added a `pnpm.overrides` entry pinning `postcss` ≥ 8.5.10 so `aislop scan`'s own `security/vulnerable-dependency` rule no longer fires on this repo. No top-level dep used postcss directly; the override is the right tool over a runtime dep that doesn't exist. Resolved version is `8.5.13`.
+
+### Internal
+
+- 8 commits land on develop including 3 auto-syncs from the `main → develop` workflow added in 0.6.2.
+- A draft PR (#48) parks an unwired TypeScript-as-lint engine — the implementation is solid but the registry, schema, config gate, and tests are deliberately not in this release.
+
 ## 0.6.2 (2026-04-22)
 
 Single-finding patch: the knip-backed `Unlisted binary` rule was firing on `.github/workflows/**` for runner-provided tools like `gh`, `aws`, `docker`, and `jq`, which can never be declared in `package.json`.

@@ -23,10 +23,7 @@ import {
 	SUPPORTED_EXTS,
 	TS_MEMBER_DECL_START,
 } from "./narrative-comments-patterns.js";
-
-interface CommentSyntax {
-	linePrefixes: string[];
-}
+import { isNonProductionPath } from "./non-production-paths.js";
 
 type BlockKind = "line" | "jsdoc";
 
@@ -37,6 +34,7 @@ interface CommentBlock {
 	rawLines: string[];
 	prose: string[];
 	hasMeaningfulJsdocTag: boolean;
+	isRustDoc: boolean;
 	nextNonBlankLine: string | null;
 }
 
@@ -49,7 +47,7 @@ const stripJsdocLine = (line: string): string =>
 
 const stripLineComment = (line: string): string => line.replace(/^\s*(?:(?:\/\/)|#)\s?/, "");
 
-const getCommentSyntax = (ext: string): CommentSyntax | null => {
+export const getCommentSyntax = (ext: string): { linePrefixes: string[] } | null => {
 	switch (ext) {
 		case ".ts":
 		case ".tsx":
@@ -71,7 +69,7 @@ const getCommentSyntax = (ext: string): CommentSyntax | null => {
 	}
 };
 
-const getMatchedLinePrefix = (line: string, syntax: CommentSyntax): string | null => {
+const getMatchedLinePrefix = (line: string, syntax: { linePrefixes: string[] }): string | null => {
 	const trimmed = line.trimStart();
 	for (const prefix of syntax.linePrefixes) {
 		if (!trimmed.startsWith(prefix)) continue;
@@ -81,7 +79,15 @@ const getMatchedLinePrefix = (line: string, syntax: CommentSyntax): string | nul
 	return null;
 };
 
-const collectBlocks = (sourceLines: string[], syntax: CommentSyntax): CommentBlock[] => {
+const isRustDocCommentLine = (line: string): boolean => {
+	const trimmed = line.trimStart();
+	return trimmed.startsWith("///") || trimmed.startsWith("//!");
+};
+
+export const collectBlocks = (
+	sourceLines: string[],
+	syntax: { linePrefixes: string[] },
+): CommentBlock[] => {
 	const blocks: CommentBlock[] = [];
 	let i = 0;
 	while (i < sourceLines.length) {
@@ -98,6 +104,9 @@ const collectBlocks = (sourceLines: string[], syntax: CommentSyntax): CommentBlo
 			}
 			let next = i;
 			while (next < sourceLines.length && sourceLines[next].trim() === "") next += 1;
+			const docCandidates = raw.filter((l) => l.trim().length > 0);
+			const isRustDoc =
+				docCandidates.length > 0 && docCandidates.every((l) => isRustDocCommentLine(l));
 			blocks.push({
 				kind: "line",
 				startLine: start + 1,
@@ -105,6 +114,7 @@ const collectBlocks = (sourceLines: string[], syntax: CommentSyntax): CommentBlo
 				rawLines: raw,
 				prose: raw.map(stripLineComment),
 				hasMeaningfulJsdocTag: false,
+				isRustDoc,
 				nextNonBlankLine: next < sourceLines.length ? sourceLines[next] : null,
 			});
 			continue;
@@ -142,6 +152,7 @@ const collectBlocks = (sourceLines: string[], syntax: CommentSyntax): CommentBlo
 				rawLines: raw,
 				prose,
 				hasMeaningfulJsdocTag: hasMeaningful,
+				isRustDoc: false,
 				nextNonBlankLine: next < sourceLines.length ? sourceLines[next] : null,
 			});
 			continue;
@@ -225,6 +236,38 @@ const looksLikeSuppressDirective = (block: CommentBlock): boolean =>
 		),
 	);
 
+const GO_DECL_NAME_RE = /^(?:func|type|var|const)\s+(?:\([^)]*\)\s*)?(\w+)/;
+const looksLikeGoDocComment = (block: CommentBlock, ext: string): boolean => {
+	if (ext !== ".go" || block.kind !== "line") return false;
+	const next = block.nextNonBlankLine;
+	if (!next) return false;
+	const declMatch = GO_DECL_NAME_RE.exec(next.trim());
+	if (!declMatch) return false;
+	const firstProse = block.prose.find((l) => l.length > 0) ?? "";
+	const firstWord = firstProse.split(/\s+/)[0] ?? "";
+	return firstWord === declMatch[1];
+};
+
+const DOC_INDICATOR_RE =
+	/`[^`]+`|\|\s*[-:]+\s*\||```|\b(?:note|warning|warn|caveat|example|caution|see):|\(e\.g\.[^)]+\)|\(i\.e\.[^)]+\)/i;
+const hasDocIndicator = (block: CommentBlock): boolean => {
+	const joined = block.prose.join(" ");
+	if (DOC_INDICATOR_RE.test(joined)) return true;
+	for (const l of block.prose) {
+		if (/^[-]\s/.test(l)) return true;
+	}
+	return false;
+};
+
+const hasPreambleSlopSignal = (block: CommentBlock): boolean => {
+	const joined = block.prose.join(" ");
+	for (const l of block.prose) {
+		if (EXPLANATORY_OPENERS.test(l)) return true;
+		if (JUSTIFICATION_OPENERS.some((re) => re.test(l))) return true;
+	}
+	return CROSS_REFERENCE_PHRASES.some((re) => re.test(joined));
+};
+
 const detectNarrativeInBlock = (
 	block: CommentBlock,
 	ext: string,
@@ -232,6 +275,8 @@ const detectNarrativeInBlock = (
 	if (looksLikeLicenseHeader(block)) return { matched: false, reason: "" };
 	if (looksLikeSuppressDirective(block)) return { matched: false, reason: "" };
 	if (block.kind === "jsdoc" && block.hasMeaningfulJsdocTag) return { matched: false, reason: "" };
+	if (block.isRustDoc) return { matched: false, reason: "" };
+	if (looksLikeGoDocComment(block, ext)) return { matched: false, reason: "" };
 
 	if (
 		block.kind === "line" &&
@@ -253,17 +298,30 @@ const detectNarrativeInBlock = (
 		return { matched: true, reason: "bare section label" };
 	}
 
-	if (block.prose.length >= 3 && looksLikeDeclarationPreamble(block.nextNonBlankLine, ext)) {
-		return {
-			matched: true,
-			reason:
-				block.kind === "jsdoc"
-					? "JSDoc preamble before declaration"
-					: "multi-line preamble before declaration",
-		};
+	const joined = block.prose.join(" ");
+	const hasWhyMarker = EXPLANATORY_WHY_MARKERS.test(joined);
+
+	if ((hasWhyMarker || hasDocIndicator(block)) && block.kind === "jsdoc") {
+		return { matched: false, reason: "" };
 	}
 
-	const joined = block.prose.join(" ");
+	if (
+		block.kind === "line" &&
+		block.prose.length >= 3 &&
+		looksLikeDeclarationPreamble(block.nextNonBlankLine, ext)
+	) {
+		return { matched: true, reason: "multi-line preamble before declaration" };
+	}
+
+	if (
+		block.kind === "jsdoc" &&
+		block.prose.length >= 3 &&
+		looksLikeDeclarationPreamble(block.nextNonBlankLine, ext) &&
+		hasPreambleSlopSignal(block)
+	) {
+		return { matched: true, reason: "JSDoc preamble with slop signal" };
+	}
+
 	if (CROSS_REFERENCE_PHRASES.some((re) => re.test(joined))) {
 		return { matched: true, reason: "cross-reference commentary" };
 	}
@@ -286,15 +344,11 @@ const detectNarrativeInBlock = (
 	}
 
 	const nonEmptyProseCount = block.prose.filter((l) => l.length > 0).length;
-	const joinedProse = block.prose.join(" ");
-	const hasWhyMarker = EXPLANATORY_WHY_MARKERS.test(joinedProse);
 
 	if (nonEmptyProseCount >= 5) {
 		return { matched: true, reason: "long narrative block" };
 	}
 
-	// 3+ prose lines inside a function body with no WHY marker is almost
-	// always restating-what-the-code-does. A real explanation cites a reason.
 	if (nonEmptyProseCount >= 3 && !hasWhyMarker && block.kind === "line") {
 		return { matched: true, reason: "multi-line narrative prose" };
 	}
@@ -313,6 +367,9 @@ export const detectNarrativeComments = async (context: EngineContext): Promise<D
 		const syntax = getCommentSyntax(ext);
 		if (!syntax) continue;
 
+		const relativePath = path.relative(context.rootDirectory, filePath);
+		if (isNonProductionPath(relativePath)) continue;
+
 		let content: string;
 		try {
 			content = fs.readFileSync(filePath, "utf-8");
@@ -322,7 +379,6 @@ export const detectNarrativeComments = async (context: EngineContext): Promise<D
 
 		const lines = content.split("\n");
 		const blocks = collectBlocks(lines, syntax);
-		const relativePath = filePath.replace(`${context.rootDirectory}/`, "");
 
 		for (const block of blocks) {
 			const { matched, reason } = detectNarrativeInBlock(block, ext);
@@ -344,56 +400,4 @@ export const detectNarrativeComments = async (context: EngineContext): Promise<D
 	}
 
 	return diagnostics;
-};
-
-export const fixNarrativeComments = async (context: EngineContext): Promise<void> => {
-	const diagnostics = await detectNarrativeComments(context);
-	if (diagnostics.length === 0) return;
-
-	const byFile = new Map<string, Diagnostic[]>();
-	for (const d of diagnostics) {
-		const abs = d.filePath.startsWith("/") ? d.filePath : `${context.rootDirectory}/${d.filePath}`;
-		const list = byFile.get(abs) ?? [];
-		list.push(d);
-		byFile.set(abs, list);
-	}
-
-	for (const [filePath, diags] of byFile) {
-		const ext = path.extname(filePath);
-		const syntax = getCommentSyntax(ext);
-		if (!syntax) continue;
-		let content: string;
-		try {
-			content = fs.readFileSync(filePath, "utf-8");
-		} catch {
-			continue;
-		}
-		const lines = content.split("\n");
-		const blocks = collectBlocks(lines, syntax);
-		const toRemove = new Set<number>();
-		for (const d of diags) {
-			const block = blocks.find((b) => b.startLine === d.line);
-			if (!block) continue;
-			for (let ln = block.startLine; ln <= block.endLine; ln += 1) {
-				toRemove.add(ln);
-			}
-			const prev = block.startLine - 1;
-			const next = block.endLine + 1;
-			const prevIsBlank = prev >= 1 && lines[prev - 1]?.trim() === "";
-			const nextIsBlank = next <= lines.length && lines[next - 1]?.trim() === "";
-			if (prevIsBlank && nextIsBlank) {
-				toRemove.add(prev);
-			}
-		}
-
-		const kept: string[] = [];
-		for (let i = 0; i < lines.length; i += 1) {
-			if (!toRemove.has(i + 1)) kept.push(lines[i]);
-		}
-
-		const newContent = kept.join("\n");
-		if (newContent !== content) {
-			fs.writeFileSync(filePath, newContent);
-		}
-	}
 };
