@@ -47,7 +47,6 @@ const commaSeparatedParser = (value: string, previous: string[] = []): string[] 
 		.split(",")
 		.map((v) => v.trim())
 		.filter(Boolean);
-	console.log(...previous, ...parts);
 	return [...previous, ...parts];
 };
 
