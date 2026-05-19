@@ -26,19 +26,36 @@ const EXCLUDED_DIRS = [
 	"dist",
 	"build",
 	".git",
+	".agents",
 	"vendor",
+	"examples",
+	"example",
+	"demos",
+	"demo",
+	"bench",
+	"benches",
+	"benchmarks",
+	"fixtures",
+	"fixture",
+	"samples",
+	"sample",
+	"tutorials",
+	"tutorial",
+	"code_samples",
+	"code-samples",
+	"notebooks",
 	"tests",
 	"test",
 	"__tests__",
 	"__test__",
 	"spec",
 	"__mocks__",
-	"fixtures",
 	"test_data",
 	".next",
 	".nuxt",
 	"coverage",
 	".turbo",
+	"public",
 ];
 
 const FIND_PRUNE_DIRS = [
@@ -46,12 +63,35 @@ const FIND_PRUNE_DIRS = [
 	"dist",
 	"build",
 	".git",
+	".agents",
 	"vendor",
+	"examples",
+	"example",
+	"demos",
+	"demo",
+	"bench",
+	"benches",
+	"benchmarks",
+	"fixtures",
+	"fixture",
+	"samples",
+	"sample",
+	"tutorials",
+	"tutorial",
+	"code_samples",
+	"code-samples",
+	"notebooks",
 	".next",
 	".nuxt",
 	"coverage",
 	".turbo",
+	"public",
 ];
+
+const BUILD_CACHE_FILE_PATTERNS = [/\.timestamp-\d+-[a-z0-9]+\.[mc]?js$/i];
+
+const isBuildCacheFile = (filePath: string): boolean =>
+	BUILD_CACHE_FILE_PATTERNS.some((pattern) => pattern.test(filePath));
 
 const TEST_FILE_PATTERNS = [
 	/(?:^|\/).*\.test\.[^/]+$/i,
@@ -86,6 +126,9 @@ const isExcludedPath = (filePath: string): boolean =>
 	EXCLUDED_DIRS.some(
 		(dir) => filePath === dir || filePath.startsWith(`${dir}/`) || filePath.includes(`/${dir}/`),
 	);
+
+export const isExcludedFromScan = (relativePath: string): boolean =>
+	isExcludedPath(relativePath) || isBuildCacheFile(relativePath);
 
 const isTestFile = (filePath: string): boolean =>
 	TEST_FILE_PATTERNS.some((pattern) => pattern.test(filePath));
@@ -171,6 +214,7 @@ export const filterProjectFiles = (
 	files: string[],
 	extraExtensions: string[] = [],
 	exclude: string[] = [],
+	include: string[] = [],
 ): string[] => {
 	const extraSet = new Set(extraExtensions);
 	const normalizedFiles = files
@@ -192,16 +236,35 @@ export const filterProjectFiles = (
 		});
 	};
 
+	const hasIncludePatterns = include.length > 0;
+
+	const isUserIncluded = (relativePath: string) => {
+		if (!hasIncludePatterns) return true;
+
+		return micromatch.isMatch(relativePath, include, {
+			dot: true,
+		});
+	};
+
 	return normalizedFiles
 		.filter(({ absolutePath, relativePath }) => {
-			return (
-				hasAllowedExtension(relativePath, extraSet) &&
-				!isExcludedPath(relativePath) &&
-				!isTestFile(relativePath) &&
-				!ignoredPaths.has(relativePath) &&
-				!isUserExcluded(relativePath) &&
-				fs.existsSync(absolutePath)
-			);
+			if (
+				!fs.existsSync(absolutePath) ||
+				!isWithinProject(relativePath) ||
+				isExcludedPath(relativePath) ||
+				isTestFile(relativePath) ||
+				ignoredPaths.has(relativePath)
+			) {
+				return false;
+			}
+			if (!isUserIncluded(relativePath)) {
+				return false;
+			}
+			// exclude precedence over include
+			if (isUserExcluded(relativePath)) {
+				return false;
+			}
+			return hasAllowedExtension(relativePath, extraSet);
 		})
 		.map(({ absolutePath }) => absolutePath);
 };

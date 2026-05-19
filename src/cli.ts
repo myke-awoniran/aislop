@@ -9,9 +9,6 @@ import { interactiveCommand } from "./commands/interactive.js";
 import { rulesCommand } from "./commands/rules.js";
 import { scanCommand } from "./commands/scan.js";
 import { loadConfig } from "./config/index.js";
-import { renderHeader } from "./ui/header.js";
-import { renderHintLine } from "./ui/logger.js";
-import { style, theme } from "./ui/theme.js";
 import {
 	ensureInstallId,
 	flushTelemetry,
@@ -20,6 +17,9 @@ import {
 	track,
 	withCommandLifecycle,
 } from "./telemetry/index.js";
+import { renderHeader } from "./ui/header.js";
+import { renderHintLine } from "./ui/logger.js";
+import { style, theme } from "./ui/theme.js";
 import { APP_VERSION } from "./version.js";
 
 process.on("SIGINT", () => process.exit(0));
@@ -39,9 +39,10 @@ interface ScanFlags {
 	verbose?: boolean;
 	json?: boolean;
 	exclude?: string[];
+	include?: string[];
 }
 
-const excludeParser = (value: string, previous: string[] = []): string[] => {
+const commaSeparatedParser = (value: string, previous: string[] = []): string[] => {
 	const parts = value
 		.split(",")
 		.map((v) => v.trim())
@@ -51,19 +52,22 @@ const excludeParser = (value: string, previous: string[] = []): string[] => {
 
 const runScan = async (directory: string, flags: ScanFlags): Promise<void> => {
 	const config = loadConfig(directory);
-	const finalConfig = flags.exclude?.length
-		? { ...config, exclude: [...(config.exclude ?? []), ...flags.exclude] }
-		: config;
+	const finalConfig = {
+		...config,
+		exclude: [...(config.exclude ?? []), ...(flags.exclude ?? [])],
+		include: [...(config.include ?? []), ...(flags.include ?? [])],
+	};
 	const { exitCode } = await scanCommand(directory, finalConfig, {
 		changes: Boolean(flags.changes),
 		staged: Boolean(flags.staged),
 		verbose: Boolean(flags.verbose),
 		json: Boolean(flags.json),
 		exclude: flags.exclude,
+		include: flags.include,
 	});
 	if (exitCode !== 0) {
 		await flushTelemetry();
-		process.exit(exitCode);
+		process.exitCode = exitCode;
 	}
 };
 
@@ -72,7 +76,8 @@ const noFlagsPassed = (flags: ScanFlags): boolean =>
 	!flags.staged &&
 	!flags.verbose &&
 	!flags.json &&
-	!(flags.exclude && flags.exclude.length > 0);
+	!(flags.exclude && flags.exclude.length > 0) &&
+	!(flags.include && flags.include.length > 0);
 
 const program = new Command()
 	.name("aislop")
@@ -86,7 +91,13 @@ const program = new Command()
 	.option(
 		"--exclude <patterns>",
 		"comma-separated or repeatable list of paths and files to exclude",
-		excludeParser,
+		commaSeparatedParser,
+		[],
+	)
+	.option(
+		"--include <patterns>",
+		"comma-separated or repeatable list of paths and files to include",
+		commaSeparatedParser,
 		[],
 	)
 	.action(async (directory: string, flags: ScanFlags) => {
@@ -141,7 +152,13 @@ program
 	.option(
 		"--exclude <patterns>",
 		"comma-separated or repeatable list of paths and files to exclude",
-		excludeParser,
+		commaSeparatedParser,
+		[],
+	)
+	.option(
+		"--include <patterns>",
+		"comma-separated or repeatable list of paths and files to include",
+		commaSeparatedParser,
 		[],
 	)
 	.action(async (directory = ".", _flags, command) => {
@@ -193,11 +210,16 @@ fixProgram.action(async (directory = ".", _flags, command) => {
 program
 	.command("init [directory]")
 	.description("Initialize aislop config in project")
-	.action(async (directory = ".") => {
+	.option(
+		"--strict",
+		"write an enterprise-grade default config: all engines, typecheck on, CI failBelow 85, workflow included",
+	)
+	.action(async (directory = ".", _flags, command) => {
+		const flags = command.optsWithGlobals() as { strict?: boolean };
 		await withCommandLifecycle(
 			{ command: "init", config: loadConfig(directory).telemetry },
 			async () => {
-				await initCommand(directory);
+				await initCommand(directory, { strict: Boolean(flags.strict) });
 				return { exitCode: 0 };
 			},
 		);
@@ -228,7 +250,7 @@ program
 		});
 		if (exitCode !== 0) {
 			await flushTelemetry();
-			process.exit(exitCode);
+			process.exitCode = exitCode;
 		}
 	});
 
@@ -270,8 +292,9 @@ program
 					return { exitCode: 0 };
 				},
 			);
-		} catch (err: any) {
-			process.stderr.write(`${err?.message ?? "Failed to print badge"}\n`);
+		} catch (err: unknown) {
+			const message = err instanceof Error ? err.message : "Failed to print badge";
+			process.stderr.write(`${message}\n`);
 			process.exit(1);
 		}
 	});

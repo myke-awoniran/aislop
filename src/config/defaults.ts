@@ -3,6 +3,7 @@ import type { AislopConfig } from "./schema.js";
 export const DEFAULT_CONFIG: AislopConfig = {
 	version: 1,
 	exclude: ["node_modules", ".git", "dist", "build", "coverage"],
+	include: [],
 	engines: {
 		format: true,
 		lint: true,
@@ -40,7 +41,7 @@ export const DEFAULT_CONFIG: AislopConfig = {
 		smoothing: 20,
 	},
 	ci: {
-		failBelow: 0,
+		failBelow: 70,
 		format: "json",
 	},
 	telemetry: {
