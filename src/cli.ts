@@ -1,17 +1,14 @@
-import {Command} from "commander";
-import {registerHookCommand} from "./cli/hook-command.js";
-import {badgeCommand} from "./commands/badge.js";
-import {ciCommand} from "./commands/ci.js";
-import {doctorCommand} from "./commands/doctor.js";
-import {fixCommand} from "./commands/fix.js";
-import {initCommand} from "./commands/init.js";
-import {interactiveCommand} from "./commands/interactive.js";
-import {rulesCommand} from "./commands/rules.js";
-import {scanCommand} from "./commands/scan.js";
-import {loadConfig} from "./config/index.js";
-import {renderHeader} from "./ui/header.js";
-import {renderHintLine} from "./ui/logger.js";
-import {style, theme} from "./ui/theme.js";
+import { Command } from "commander";
+import { registerHookCommand } from "./cli/hook-command.js";
+import { badgeCommand } from "./commands/badge.js";
+import { ciCommand } from "./commands/ci.js";
+import { doctorCommand } from "./commands/doctor.js";
+import { fixCommand } from "./commands/fix.js";
+import { initCommand } from "./commands/init.js";
+import { interactiveCommand } from "./commands/interactive.js";
+import { rulesCommand } from "./commands/rules.js";
+import { scanCommand } from "./commands/scan.js";
+import { loadConfig } from "./config/index.js";
 import {
 	ensureInstallId,
 	flushTelemetry,
@@ -20,7 +17,10 @@ import {
 	track,
 	withCommandLifecycle,
 } from "./telemetry/index.js";
-import {APP_VERSION} from "./version.js";
+import { renderHeader } from "./ui/header.js";
+import { renderHintLine } from "./ui/logger.js";
+import { style, theme } from "./ui/theme.js";
+import { APP_VERSION } from "./version.js";
 
 process.on("SIGINT", () => process.exit(0));
 process.on("SIGTERM", () => process.exit(0));
@@ -29,7 +29,7 @@ const fireInstalledOnce = (): void => {
 	if (isTelemetryDisabled(loadConfig(process.cwd()).telemetry)) return;
 	const ensured = ensureInstallId(resolveInstallIdPath());
 	if (ensured.created) {
-		track({event: "cli_installed", config: loadConfig(process.cwd()).telemetry});
+		track({ event: "cli_installed", config: loadConfig(process.cwd()).telemetry });
 	}
 };
 
@@ -73,7 +73,7 @@ const runScan = async (directory: string, flags: ScanFlags): Promise<void> => {
 	});
 	if (exitCode !== 0) {
 		await flushTelemetry();
-		process.exit(exitCode);
+		process.exitCode = exitCode;
 	}
 };
 
@@ -117,7 +117,7 @@ const program = new Command()
 		}
 		await runScan(directory, flags);
 	})
-	.addHelpText("beforeAll", renderHeader({version: APP_VERSION, command: "--bare", context: []}))
+	.addHelpText("beforeAll", renderHeader({ version: APP_VERSION, command: "--bare", context: [] }))
 	.addHelpText(
 		"after",
 		`
@@ -171,21 +171,21 @@ program
 	});
 
 const FIX_AGENT_FLAGS: { flag: string; name: string; help: string }[] = [
-	{flag: "claude", name: "claude", help: "open Claude Code to fix remaining issues"},
-	{flag: "codex", name: "codex", help: "open Codex to fix remaining issues"},
-	{flag: "cursor", name: "cursor", help: "open Cursor and copy prompt to clipboard"},
-	{flag: "windsurf", name: "windsurf", help: "open Windsurf and copy prompt to clipboard"},
-	{flag: "vscode", name: "vscode", help: "open VS Code and copy prompt to clipboard"},
-	{flag: "amp", name: "amp", help: "open Amp to fix remaining issues"},
-	{flag: "antigravity", name: "antigravity", help: "open Antigravity to fix remaining issues"},
+	{ flag: "claude", name: "claude", help: "open Claude Code to fix remaining issues" },
+	{ flag: "codex", name: "codex", help: "open Codex to fix remaining issues" },
+	{ flag: "cursor", name: "cursor", help: "open Cursor and copy prompt to clipboard" },
+	{ flag: "windsurf", name: "windsurf", help: "open Windsurf and copy prompt to clipboard" },
+	{ flag: "vscode", name: "vscode", help: "open VS Code and copy prompt to clipboard" },
+	{ flag: "amp", name: "amp", help: "open Amp to fix remaining issues" },
+	{ flag: "antigravity", name: "antigravity", help: "open Antigravity to fix remaining issues" },
 	// Commander camelCases --deep-agents to deepAgents on the parsed opts object.
-	{flag: "deep-agents", name: "deepAgents", help: "open Deep Agents to fix remaining issues"},
-	{flag: "gemini", name: "gemini", help: "open Gemini CLI to fix remaining issues"},
-	{flag: "kimi", name: "kimi", help: "open Kimi Code CLI to fix remaining issues"},
-	{flag: "opencode", name: "opencode", help: "open OpenCode to fix remaining issues"},
-	{flag: "warp", name: "warp", help: "open Warp to fix remaining issues"},
-	{flag: "aider", name: "aider", help: "open Aider to fix remaining issues"},
-	{flag: "goose", name: "goose", help: "open Goose to fix remaining issues"},
+	{ flag: "deep-agents", name: "deepAgents", help: "open Deep Agents to fix remaining issues" },
+	{ flag: "gemini", name: "gemini", help: "open Gemini CLI to fix remaining issues" },
+	{ flag: "kimi", name: "kimi", help: "open Kimi Code CLI to fix remaining issues" },
+	{ flag: "opencode", name: "opencode", help: "open OpenCode to fix remaining issues" },
+	{ flag: "warp", name: "warp", help: "open Warp to fix remaining issues" },
+	{ flag: "aider", name: "aider", help: "open Aider to fix remaining issues" },
+	{ flag: "goose", name: "goose", help: "open Goose to fix remaining issues" },
 ];
 
 const matchFixAgent = (flags: Record<string, boolean | undefined>): string | undefined => {
@@ -215,12 +215,17 @@ fixProgram.action(async (directory = ".", _flags, command) => {
 program
 	.command("init [directory]")
 	.description("Initialize aislop config in project")
-	.action(async (directory = ".") => {
+	.option(
+		"--strict",
+		"write an enterprise-grade default config: all engines, typecheck on, CI failBelow 85, workflow included",
+	)
+	.action(async (directory = ".", _flags, command) => {
+		const flags = command.optsWithGlobals() as { strict?: boolean };
 		await withCommandLifecycle(
 			{command: "init", config: loadConfig(directory).telemetry},
 			async () => {
-				await initCommand(directory);
-				return {exitCode: 0};
+				await initCommand(directory, { strict: Boolean(flags.strict) });
+				return { exitCode: 0 };
 			},
 		);
 	});
@@ -230,10 +235,10 @@ program
 	.description("Check installed tools and environment")
 	.action(async (directory = ".") => {
 		await withCommandLifecycle(
-			{command: "doctor", config: loadConfig(directory).telemetry},
+			{ command: "doctor", config: loadConfig(directory).telemetry },
 			async () => {
 				await doctorCommand(directory);
-				return {exitCode: 0};
+				return { exitCode: 0 };
 			},
 		);
 	});
@@ -245,12 +250,12 @@ program
 	.action(async (directory = ".", _flags, command) => {
 		const flags = command.optsWithGlobals() as { human?: boolean };
 		const config = loadConfig(directory);
-		const {exitCode} = await ciCommand(directory, config, {
+		const { exitCode } = await ciCommand(directory, config, {
 			human: Boolean(flags.human),
 		});
 		if (exitCode !== 0) {
 			await flushTelemetry();
-			process.exit(exitCode);
+			process.exitCode = exitCode;
 		}
 	});
 
@@ -259,10 +264,10 @@ program
 	.description("List all available rules")
 	.action(async (directory = ".") => {
 		await withCommandLifecycle(
-			{command: "rules", config: loadConfig(directory).telemetry},
+			{ command: "rules", config: loadConfig(directory).telemetry },
 			async () => {
 				await rulesCommand(directory);
-				return {exitCode: 0};
+				return { exitCode: 0 };
 			},
 		);
 	});
@@ -281,7 +286,7 @@ program
 		};
 		try {
 			await withCommandLifecycle(
-				{command: "badge", config: loadConfig(directory).telemetry},
+				{ command: "badge", config: loadConfig(directory).telemetry },
 				async () => {
 					await badgeCommand({
 						directory,
@@ -289,11 +294,12 @@ program
 						repo: flags.repo,
 						json: Boolean(flags.json),
 					});
-					return {exitCode: 0};
+					return { exitCode: 0 };
 				},
 			);
-		} catch (err: any) {
-			process.stderr.write(`${err?.message ?? "Failed to print badge"}\n`);
+		} catch (err: unknown) {
+			const message = err instanceof Error ? err.message : "Failed to print badge";
+			process.stderr.write(`${message}\n`);
 			process.exit(1);
 		}
 	});
